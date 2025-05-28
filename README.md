@@ -187,7 +187,7 @@ python scripts/download_yolo_s3_model.py your-bucket models/yolov10x_best.onnx
 npx ts-node scripts/download_yolo_s3_model.ts your-bucket models/yolov10x_best.onnx
 ```
 
-For production deployment, the model should be stored at: `dummy_s3_onnx_link`
+For production deployment, the model should be stored at: `doc-data-extraction-test/models/yolov10x_best.onnx`
 
 ### Environment Configuration
 
@@ -325,6 +325,11 @@ s3://your-bucket/
 ├── intermediate-images/             # Page images from splitter
 ├── intermediate-raw-text/           # Raw text from splitter  
 ├── intermediate-page-results/       # Individual page analysis
+├── intermediate-cropped-images/     # Cropped elements detected by YOLO
+│   └── {run-uuid}/
+│       ├── page1_element1.png       # Tables, headings, images, etc.
+│       ├── page1_element2.png
+│       └── ...
 └── final-outputs/                   # Final aggregated results
     └── {run-uuid}/
         ├── {filename}_aggregated_results.json

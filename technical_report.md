@@ -165,6 +165,42 @@ The Combiner service aggregates and finalizes the processing results:
 - **Input**: List of page result URIs, original document metadata
 - **Output**: Aggregated outputs in JSON, Markdown, HTML, and TXT formats
 
+## Storage Structure
+
+All inputs, intermediate assets, and outputs are organized in S3 with a well-defined structure:
+```
+s3://your-bucket/
+├── inputs/                          # Input documents
+├── intermediate-images/             # Page images from splitter
+│   └── {run-uuid}/
+│       ├── page_1.png
+│       ├── page_2.png
+│       └── ...
+├── intermediate-raw-text/           # Raw text from splitter
+│   └── {run-uuid}/
+│       ├── page_1.txt
+│       ├── page_2.txt
+│       └── ...
+├── intermediate-page-results/       # Individual page analysis
+│   └── {run-uuid}/
+│       ├── page_1_result.json
+│       ├── page_2_result.json
+│       └── ...
+├── intermediate-cropped-images/     # Cropped document elements
+│   └── {run-uuid}/
+│       ├── page1_element1.png
+│       ├── page1_element2.png
+│       └── ...
+└── final-outputs/                   # Final aggregated results
+    └── {run-uuid}/
+        ├── {filename}_aggregated_results.json
+        ├── {filename}_combined.markdown
+        ├── {filename}_combined.html
+        └── {filename}_combined.txt
+```
+
+This structure facilitates tracking, debugging, and result retrieval. Each processing run receives a unique UUID, allowing for clear separation between different executions.
+
 ## Deployment Architecture
 
 ### AWS Infrastructure
