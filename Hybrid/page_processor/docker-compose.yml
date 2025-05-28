@@ -1,0 +1,44 @@
+version: '3.8'
+services:
+  processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: processor-service:latest
+    container_name: processor_service
+    environment:
+      # AWS Credentials & Configuration
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME}" # Used for S3 output, ensure this is defined in .env
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN}"
+      AWS_REGION: "${AWS_REGION}"
+      S3_OUTPUT_BUCKET: "${S3_BUCKET_NAME}" # Bucket for final processor results, using common S3_BUCKET_NAME
+
+      # LLM Configuration
+      VISION_PROVIDER: "${VISION_PROVIDER}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      GEMINI_MODEL_NAME: "${GEMINI_MODEL_NAME}"
+      OPENAI_MODEL_NAME: "${OPENAI_MODEL_NAME}"
+      MAX_IMAGE_DIMENSION: "${MAX_IMAGE_DIMENSION}"
+
+      # YOLO Model Configuration (Matches path in Dockerfile)
+      YOLO_MODEL_PATH: "/app/models/yolov10x_best.onnx"
+
+    # Use tmpfs for temporary storage within the container
+    tmpfs:
+      - /tmp:size=512M # Increased size for image processing
+
+    # Entrypoint and Command define what the container runs
+    entrypoint: ["node", "dist/handler.js"]
+    command: # Example arguments - replace with actual values from splitter output
+      - "s3://${S3_BUCKET_NAME}/outputs/splitter/images/document_1.png" # Example image input
+      - "run-uuid" # Run UUID
+      - "1"        # Page Number
+      - "json"     # Output Format (json, markdown, html, txt)
+      - "document" # Original Base Filename
+      - "${S3_BUCKET_NAME}" # S3 Bucket for output (same as S3_OUTPUT_BUCKET)
+      # Optional arguments below
+      - "s3://${S3_BUCKET_NAME}/outputs/splitter/texts/document_page_1_text.txt" # Optional Text URI
+      # - "s3://${S3_BUCKET_NAME}/outputs/processor/cropped/run-uuid/" # Optional Cropped Images Prefix 

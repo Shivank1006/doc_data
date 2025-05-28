@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  lambda-page-processor:
+    build:
+      context: . # Assumes Dockerfile is in the same directory as docker-compose.yml
+      dockerfile: Dockerfile
+    container_name: lambda_page_processor_service
+    ports:
+      - "9001:8080" # Expose RIE on host port 9001, container port 8080
+    environment:
+      # AWS Credentials & Configuration loaded from .env file
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-} # Optional, will be empty if not provided
+      AWS_REGION: ${AWS_REGION:-us-east-1} # Default to us-east-1 if not provided
+      
+      # LLM Configuration
+      VISION_PROVIDER: ${VISION_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-gemini-2.0-flash}
+      OPENAI_VISION_MODEL: ${OPENAI_VISION_MODEL:-gpt-4o}
+      MAX_IMAGE_DIMENSION: ${MAX_IMAGE_DIMENSION:-1024}
+      
+      # YOLO Model Configuration
+      YOLO_MODEL_LOCAL_PATH: /var/task/yolov10x_best.onnx
+
+    # Resource constraints
+    mem_limit: 1024m  # Default 2GB for ML model inference
+    cpus: "0.5" # Default to 1 CPU core if not specified
+
+    # Lambda's ephemeral storage simulation
+    tmpfs:
+      - /tmp:size=250M
+
+# --- How to Use ---
+# 1. Create a .env file based on .env.example with your actual values
+# 2. Build and run:
+#    docker-compose up --build
+#
+# 3. The Lambda function will be listening on http://localhost:9001
+#    You can invoke it using a curl command in another terminal:
+#    curl -XPOST "http://localhost:9001/2015-03-31/functions/function/invocations" -d '{"s3_page_image_uri": "s3://doc-data-extraction-test/intermediate-images/c7aa6e70-3a91-446a-a2af-e98420c15dab/1746607866167-bio_page_1.png", "s3_page_text_uri": "s3://doc-data-extraction-test/intermediate-raw-text/c7aa6e70-3a91-446a-a2af-e98420c15dab/1746607866167-bio_page_1_text.txt", "run_uuid": "c7aa6e70-3a91-446a-a2af-e98420c15dab", "page_number": 1, "output_format": "markdown", "original_base_filename": "example"}'
+#
+# 4. To stop the service:
+#    Ctrl+C in the terminal where docker-compose is running, then:
+#    docker-compose down 

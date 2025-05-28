@@ -1,0 +1,4 @@
+boto3
+# Add libraries for output formatting if needed, e.g.:
+# markdown 
+# beautifulsoup4 # For HTML generation 

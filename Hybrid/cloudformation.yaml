@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Document Processing Pipeline with Lambda and Step Functions'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: S3 bucket for document processing
+  
+  ECRRepoPrefix:
+    Type: String
+    Default: doc-processor
+    Description: Prefix for ECR repositories
+    
+  GeminiApiKey:
+    Type: String
+    Description: API key for Gemini Vision API
+    NoEcho: true
+    
+  OpenAIApiKey:
+    Type: String
+    Description: API key for OpenAI Vision API
+    NoEcho: true
+
+  VisionProvider:
+    Type: String
+    Default: gemini
+    Description: Vision provider (gemini or openai)
+  
+  GeminiModelName:
+    Type: String
+    Default: gemini-2.0-flash
+    Description: Gemini vision model name
+  
+  OpenAIModelName:
+    Type: String
+    Default: gpt-4o
+    Description: OpenAI vision model name
+  
+  MaxImageDimension:
+    Type: String
+    Default: 1024
+    Description: Maximum image dimension for processing
+  
+  YoloModelLocalPath:
+    Type: String
+    Default: /var/task/yolov10x_best.onnx
+    Description: Local path for YOLO model within the Lambda container
+
+Resources:
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${S3BucketName}
+                  - !Sub arn:aws:s3:::${S3BucketName}/*
+
+  # Lambda Functions
+  SplitterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-splitter
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-splitter:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+
+  PageProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-page-processor
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-page-processor:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+          VISION_PROVIDER: !Ref VisionProvider
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          GEMINI_MODEL_NAME: !Ref GeminiModelName
+          OPENAI_MODEL_NAME: !Ref OpenAIModelName
+          MAX_IMAGE_DIMENSION: !Ref MaxImageDimension
+          YOLO_MODEL_PATH: !Ref YoloModelLocalPath
+
+  CombinerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-combiner
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-combiner:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 900  # Increased from 300 to 900 seconds (15 minutes)
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+          FINAL_OUTPUT_PREFIX: "final-outputs"
+
+  # Step Function Role
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt SplitterFunction.Arn
+                  - !GetAtt PageProcessorFunction.Arn
+                  - !GetAtt CombinerFunction.Arn
+
+  # Step Function
+  DocumentProcessingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: DocumentProcessingPipeline
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+      Definition:
+        Comment: "Document Processing Pipeline"
+        StartAt: Splitter
+        States:
+          Splitter:
+            Type: Task
+            Resource: !GetAtt SplitterFunction.Arn
+            Next: ParseSplitterResult
+            ResultPath: "$.splitter_result"
+          ParseSplitterResult:
+            Type: Pass
+            Parameters:
+              parsed_result.$: "States.StringToJson($.splitter_result.body)"
+            ResultPath: "$.parsed_splitter_result"
+            Next: ProcessPages
+          ProcessPages:
+            Type: Map
+            ItemsPath: "$.parsed_splitter_result.parsed_result.s3_page_image_uris"
+            MaxConcurrency: 10
+            Parameters:
+              run_uuid.$: "$.parsed_splitter_result.parsed_result.run_uuid"
+              s3_page_image_uri.$: "$$.Map.Item.Value"
+              s3_page_text_uri.$: "States.ArrayGetItem($.parsed_splitter_result.parsed_result.s3_page_text_uris, $$.Map.Item.Index)"
+              output_format.$: "$.parsed_splitter_result.parsed_result.output_format"
+              page_number.$: "States.MathAdd($$.Map.Item.Index, 1)"
+              original_base_filename.$: "$.parsed_splitter_result.parsed_result.original_base_filename"
+            Iterator:
+              StartAt: PageProcessor
+              States:
+                PageProcessor:
+                  Type: Task
+                  Resource: !GetAtt PageProcessorFunction.Arn
+                  End: true
+                  ResultPath: "$.page_result"
+            ResultPath: "$.page_results"
+            Next: ParsePageResults
+          ParsePageResults:
+            Type: Map
+            ItemsPath: "$.page_results"
+            MaxConcurrency: 10
+            Iterator:
+              StartAt: ParsePageResult
+              States:
+                ParsePageResult:
+                  Type: Pass
+                  Parameters:
+                    parsed_page_result.$: "States.StringToJson($.page_result.body)"
+                  End: true
+            ResultPath: "$.parsed_page_results"
+            Next: PrepareForCombiner
+          PrepareForCombiner:
+            Type: Pass
+            Parameters:
+              run_uuid.$: "$.parsed_splitter_result.parsed_result.run_uuid"
+              s3_page_result_uris.$: "$.parsed_page_results[*].parsed_page_result.s3_result_uri"
+              original_s3_uri.$: "$.parsed_splitter_result.parsed_result.original_s3_uri"
+              original_base_filename.$: "$.parsed_splitter_result.parsed_result.original_base_filename"
+              output_format.$: "$.parsed_splitter_result.parsed_result.output_format"
+            Next: Combiner
+          Combiner:
+            Type: Task
+            Resource: !GetAtt CombinerFunction.Arn
+            InputPath: "$"
+            ResultPath: "$.combiner_result"
+            Retry:
+              - ErrorEquals:
+                  - States.TaskFailed
+                IntervalSeconds: 3
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                ResultPath: "$.error"
+                Next: HandleError
+            Next: Success
+          HandleError:
+            Type: Pass
+            Parameters:
+              error.$: "$.error"
+            End: true
+          Success:
+            Type: Pass
+            End: true
+
+Outputs:
+  StateMachineArn:
+    Description: ARN of the Step Function state machine
+    Value: !Ref DocumentProcessingStateMachine
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

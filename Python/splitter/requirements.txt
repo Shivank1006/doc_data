@@ -1,0 +1,8 @@
+PyMuPDF
+pdf2image
+python-pptx
+docx2txt
+Pillow
+aioboto3
+# Note: Deployment package must include Poppler binaries accessible by pdf2image,
+# or use a Lambda Layer containing Poppler. 

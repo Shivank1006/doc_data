@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  splitter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: splitter-service:latest
+    environment:
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN}"
+      AWS_REGION: "${AWS_REGION}"
+      # Add any other splitter-specific env vars from python version if needed
+      PDF_DPI: "${PDF_DPI:-200}"
+      INTERMEDIATE_IMAGES_PREFIX: "${INTERMEDIATE_IMAGES_PREFIX:-intermediate-images}"
+      INTERMEDIATE_RAW_TEXT_PREFIX: "${INTERMEDIATE_RAW_TEXT_PREFIX:-intermediate-raw-text}"
+      LANG: "${LANG:-C.UTF-8}"
+    entrypoint: ["node", "dist/handler.js"]
+    command:
+      # These arguments are passed to your handler.js
+      # Example: s3://<bucket>/<input_path> s3://<bucket>/<image_output_prefix> s3://<bucket>/<text_output_prefix> <format>
+      - "s3://${S3_BUCKET_NAME}/inputs/document.pdf" # Example input, make sure bucket name is correct
+      - "s3://${S3_BUCKET_NAME}/${INTERMEDIATE_IMAGES_PREFIX}" # Example image output
+      - "s3://${S3_BUCKET_NAME}/${INTERMEDIATE_RAW_TEXT_PREFIX}" # Example text output
+      - "json" 

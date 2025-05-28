@@ -1,0 +1,30 @@
+{
+  "name": "doc-processor-combiner",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "ts-node test-local.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Document combiner microservice",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.535.0",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "uuid": "^8.3.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.46",
+    "@types/pino": "^7.0.4",
+    "@types/uuid": "^9.0.8",
+    "jest": "^29.7.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.2"
+  }
+}

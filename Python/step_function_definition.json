@@ -1,0 +1,53 @@
+{
+  "Comment": "Document Processing Pipeline",
+  "StartAt": "Splitter",
+  "States": {
+    "Splitter": {
+      "Type": "Task",
+      "Resource": "${SplitterFunctionArn}",
+      "Next": "ProcessPages",
+      "ResultPath": "$.splitter_result"
+    },
+    "ProcessPages": {
+      "Type": "Map",
+      "ItemsPath": "$.splitter_result.s3_page_image_uris",
+      "MaxConcurrency": 10,
+      "Parameters": {
+        "run_uuid.$": "$.splitter_result.run_uuid",
+        "s3_image_uri.$": "$$.Map.Item.Value",
+        "s3_raw_text_uri.$": "$.splitter_result.s3_page_text_uris[$$.Map.Item.Index]",
+        "output_format.$": "$.splitter_result.output_format",
+        "page_number.$": "$$.Map.Item.Index",
+        "original_base_filename.$": "$.splitter_result.original_base_filename"
+      },
+      "Iterator": {
+        "StartAt": "PageProcessor",
+        "States": {
+          "PageProcessor": {
+            "Type": "Task",
+            "Resource": "${PageProcessorFunctionArn}",
+            "End": true,
+            "ResultPath": "$.page_result"
+          }
+        }
+      },
+      "ResultPath": "$.page_results",
+      "Next": "Combiner"
+    },
+    "Combiner": {
+      "Type": "Task",
+      "Resource": "${CombinerFunctionArn}",
+      "Parameters": {
+        "run_uuid.$": "$.splitter_result.run_uuid",
+        "s3_page_result_uris.$": "$.page_results[*].page_result.s3_result_uri",
+        "original_s3_uri.$": "$.splitter_result.original_s3_uri",
+        "original_base_filename.$": "$.splitter_result.original_base_filename",
+        "output_format.$": "$.splitter_result.output_format"
+      },
+      "End": true
+    }
+  }
+}
+
+
+

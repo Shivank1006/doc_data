@@ -1,0 +1,28 @@
+{
+  "name": "typescript-doc-processor-pipeline",
+  "version": "1.0.0",
+  "description": "Orchestration and microservices for document processing.",
+  "main": "run-pipeline.ts",
+  "scripts": {
+    "start:pipeline": "ts-node run-pipeline.ts",
+    "build": "echo \"No root build specified, build services individually.\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.810.0",
+    "aws-cdk-lib": "^2.197.0",
+    "axios": "^1.6.8",
+    "commander": "^12.0.0",
+    "constructs": "^10.4.2",
+    "source-map-support": "^0.5.21",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.2",
+    "@types/uuid": "^9.0.8",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.3"
+  }
+}

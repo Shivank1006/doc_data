@@ -1,0 +1,190 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Document Processing Pipeline with Lambda and Step Functions'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: S3 bucket for document processing
+  
+  ECRRepoPrefix:
+    Type: String
+    Default: doc-processor
+    Description: Prefix for ECR repositories
+    
+  OpenAIApiKey:
+    Type: String
+    Description: API key for OpenAI services
+    NoEcho: true
+    
+  GeminiApiKey:
+    Type: String
+    Description: API key for Google Gemini services
+    NoEcho: true
+
+Resources:
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${S3BucketName}
+                  - !Sub arn:aws:s3:::${S3BucketName}/*
+
+  # Lambda Functions
+  SplitterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-splitter
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-splitter:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+
+  PageProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-page-processor
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-page_processor:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+          OPENAI_API_KEY: !Ref OpenAIApiKey
+          GEMINI_API_KEY: !Ref GeminiApiKey
+          VISION_PROVIDER: gemini
+          GEMINI_VISION_MODEL: gemini-2.0-flash
+          OPENAI_VISION_MODEL: gpt-4o
+          MAX_IMAGE_DIMENSION: 1024
+          YOLO_MODEL_LOCAL_PATH: /var/task/yolov10x_best.onnx
+
+  CombinerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: doc-processor-combiner
+      PackageType: Image
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoPrefix}-combiner:latest
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 2048
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+          FINAL_OUTPUT_PREFIX: final-outputs
+
+  # Step Function Role
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt SplitterFunction.Arn
+                  - !GetAtt PageProcessorFunction.Arn
+                  - !GetAtt CombinerFunction.Arn
+
+  # Step Function
+  DocumentProcessingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: DocumentProcessingPipeline
+      RoleArn: !GetAtt StepFunctionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Document Processing Pipeline",
+          "StartAt": "Splitter",
+          "States": {
+            "Splitter": {
+              "Type": "Task",
+              "Resource": "${SplitterFunction.Arn}",
+              "Next": "ProcessPages",
+              "ResultPath": "$.splitter_result"
+            },
+            "ProcessPages": {
+              "Type": "Map",
+              "ItemsPath": "$.splitter_result.s3_page_image_uris",
+              "MaxConcurrency": 10,
+              "Parameters": {
+                "run_uuid.$": "$.splitter_result.run_uuid",
+                "s3_image_uri.$": "$$.Map.Item.Value",
+                "s3_raw_text_uri.$": "States.ArrayGetItem($.splitter_result.s3_page_text_uris, $$.Map.Item.Index)",
+                "output_format.$": "$.splitter_result.output_format",
+                "page_number.$": "$$.Map.Item.Index",
+                "original_base_filename.$": "$.splitter_result.original_base_filename"
+              },
+              "Iterator": {
+                "StartAt": "PageProcessor",
+                "States": {
+                  "PageProcessor": {
+                    "Type": "Task",
+                    "Resource": "${PageProcessorFunction.Arn}",
+                    "End": true,
+                    "ResultPath": "$.page_result"
+                  }
+                }
+              },
+              "ResultPath": "$.page_results",
+              "Next": "Combiner"
+            },
+            "Combiner": {
+              "Type": "Task",
+              "Resource": "${CombinerFunction.Arn}",
+              "Parameters": {
+                "run_uuid.$": "$.splitter_result.run_uuid",
+                "s3_page_result_uris.$": "$.page_results[*].page_result.s3_result_uri",
+                "original_s3_uri.$": "$.splitter_result.original_s3_uri",
+                "original_base_filename.$": "$.splitter_result.original_base_filename",
+                "output_format.$": "$.splitter_result.output_format"
+              },
+              "End": true
+            }
+          }
+        }
+
+Outputs:
+  StateMachineArn:
+    Description: ARN of the Step Function state machine
+    Value: !Ref DocumentProcessingStateMachine
+
+
+

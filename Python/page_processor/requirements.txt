@@ -1,0 +1,9 @@
+aioboto3>=14.3.0
+Pillow>=10.0.0
+google-genai
+google-api-core
+onnxruntime>=1.15.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0,<2.0.0
+openai>=1.0.0
+python-dotenv>=1.0.0

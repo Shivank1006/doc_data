@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  lambda-splitter:
+    build:
+      context: . # Assumes Dockerfile is in the same directory as docker-compose.yml
+      dockerfile: Dockerfile
+    container_name: lambda_splitter_service
+    ports:
+      - "9000:8080" # Expose RIE on host port 9000, container port 8080
+    environment:
+      # --- AWS Credentials & Configuration (Fill these in!) ---
+      - S3_BUCKET_NAME=doc-data-extraction-test
+      - AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+      - AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+      - AWS_SESSION_TOKEN=DUMMY_SESSION_TOKEN_REPLACE_WITH_ACTUAL_TOKEN_IF_NEEDED
+      - AWS_REGION=us-east-1
+
+      # --- Application Environment Variables (Defaults from Dockerfile) ---
+      # These can be overridden here if needed.
+      - PDF_DPI=200
+      - INTERMEDIATE_IMAGES_PREFIX=intermediate-images
+      - INTERMEDIATE_RAW_TEXT_PREFIX=intermediate-raw-text
+      - LANG=C.UTF-8
+
+    # --- Resource Constraints (Example) ---
+    # Mimicking Lambda memory: Lambda memory settings are more specific.
+    # This sets a limit for the Docker container.
+    # Adjust based on your function's needs and Lambda configuration.
+    # Common Lambda memory sizes: 512MB, 1024MB, etc.
+    mem_limit: 1024m
+    # cpus: "0.5" # Example: limit to half a CPU core
+
+    # --- Ephemeral /tmp Storage Simulation ---
+    # AWS Lambda provides a /tmp directory with a default size of 512MB (configurable up to 10GB).
+    # This tmpfs mount simulates a limited size for /tmp within the container.
+    tmpfs:
+      - /tmp:size=250M # Set to 250MB as requested. Adjust as needed (e.g., size=512M for Lambda default).
+
+    # The command in the Dockerfile (lambda_function.lambda_handler) will be used by RIE.
+    # No need to override `command` here unless you have a specific reason.
+
+# --- How to Use ---
+# 1. Save this file as `docker-compose.yml` in the `splitter` directory.
+# 2. Ensure your `Dockerfile` and `lambda_function.py` are also in the `splitter` directory.
+# 3. Fill in the placeholder values for S3_BUCKET_NAME, AWS credentials, and AWS_REGION above.
+# 4. Open a terminal in the `splitter` directory.
+# 5. Build and run the service:
+#    docker-compose up --build
+#
+# 6. The Lambda function will be listening on http://localhost:9000.
+#    You can invoke it using a curl command (as shown in Dockerfile comments) in another terminal:
+#    curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d \
+#    '{"s3_input_uri": "s3://your-s3-bucket-name/inputs/mydoc.pdf", "output_format": "markdown"}'
+#    (Remember to use the S3_BUCKET_NAME you configured)
+#
+# 7. To stop the service:
+#    Ctrl+C in the terminal where docker-compose is running, then:
+#    docker-compose down 

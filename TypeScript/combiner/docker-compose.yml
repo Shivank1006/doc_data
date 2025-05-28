@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  combiner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: combiner-service:latest
+    container_name: combiner_service
+    environment:
+      S3_BUCKET_NAME: "${S3_BUCKET_NAME}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN}"
+      AWS_REGION: "${AWS_REGION}"
+      FINAL_OUTPUT_PREFIX: "${FINAL_OUTPUT_PREFIX:-outputs/combiner}" # Default if not set in .env
+    tmpfs:
+      - /tmp:size=100M
+    entrypoint: ["node", "dist/handler.js"]
+    command:
+      - "run-uuid" # run_uuid
+      - "json"     # output_format
+      - "document" # original_base_filename
+      - "s3://${S3_BUCKET_NAME}/inputs/document.pdf" # original_s3_uri
+      - "s3://${S3_BUCKET_NAME}/outputs/processor/run-uuid/document_page_1.json,s3://${S3_BUCKET_NAME}/outputs/processor/run-uuid/document_page_2.json" # s3_page_result_uris (comma-separated) 
